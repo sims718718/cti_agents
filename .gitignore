@@ -1,0 +1,34 @@
+# Environment / secrets
+.env
+.env.local
+*.env
+claude_key.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Generated reports (may contain sensitive intel)
+reports/
+report.json
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db

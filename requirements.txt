@@ -1,0 +1,12 @@
+anthropic>=0.40.0
+feedparser>=6.0.11
+requests>=2.31.0
+stix2>=3.0.1
+taxii2-client>=2.3.0
+python-dotenv>=1.0.0
+rich>=13.7.0
+typer>=0.12.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+pypdf>=4.0.0

@@ -1,0 +1,11 @@
+services:
+  cti-agents:
+    build: .
+    ports:
+      - "8001:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OTX_API_KEY=${OTX_API_KEY:-}
+    volumes:
+      - ./reports:/app/reports
+    restart: unless-stopped

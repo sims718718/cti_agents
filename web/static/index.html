@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CTI Agents</title>
+<link rel="stylesheet" href="/static/style.css?v=3">
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="logo">⬡ CTI Agents</div>
+    <nav>
+      <button class="nav-btn active" data-view="dashboard">Dashboard</button>
+      <button class="nav-btn" data-view="new">+ New Analysis</button>
+      <button class="nav-btn" data-view="feeds">Feeds</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ── Dashboard view ─────────────────────────────────────────────── -->
+    <div id="view-dashboard" class="view active">
+      <div class="page-header">
+        <h1>Analysis Runs</h1>
+        <button class="btn btn-ghost btn-sm" id="refresh-btn">↻ Refresh</button>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table id="runs-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Score</th>
+                <th>Feeds</th>
+                <th>Docs</th>
+                <th>Iterations</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="runs-tbody">
+              <tr><td colspan="8" class="empty">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── New analysis view ──────────────────────────────────────────── -->
+    <div id="view-new" class="view">
+      <div class="page-header">
+        <h1>New Analysis</h1>
+      </div>
+      <div class="card" style="max-width:680px">
+        <form id="new-run-form">
+          <div class="form-group">
+            <label for="run-name">Run Name *</label>
+            <input type="text" id="run-name" name="name" placeholder="e.g. Weekly Threat Hunt – Feb 2026" required>
+          </div>
+
+          <div class="form-group">
+            <label>Feed Sources</label>
+
+            <div class="feed-section">
+              <div class="feed-section-header">
+                <span class="feed-section-title">RSS Feeds</span>
+                <div class="feed-section-actions">
+                  <button type="button" class="btn btn-ghost btn-sm" id="rss-select-all">Select All</button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="rss-deselect-all">Deselect All</button>
+                </div>
+              </div>
+              <div class="feed-checklist" id="rss-checklist">
+                <span class="feed-loading">Loading…</span>
+              </div>
+            </div>
+
+            <div class="feed-section">
+              <div class="feed-section-header">
+                <span class="feed-section-title">API / Threat Intel</span>
+                <div class="feed-section-actions">
+                  <button type="button" class="btn btn-ghost btn-sm" id="api-select-all">Select All</button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="api-deselect-all">Deselect All</button>
+                </div>
+              </div>
+              <div class="feed-checklist" id="api-checklist">
+                <span class="feed-loading">Loading…</span>
+              </div>
+            </div>
+
+            <div class="feed-section">
+              <div class="feed-section-header">
+                <span class="feed-section-title">STIX / TAXII</span>
+              </div>
+              <div class="feed-checklist">
+                <label class="feed-check-item">
+                  <input type="checkbox" name="feed_stix" id="feed-stix-cb">
+                  <span>Include STIX / TAXII</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group" id="stix-url-group" style="display:none">
+            <label for="stix-url">STIX Bundle URL (optional)</label>
+            <input type="url" id="stix-url" name="stix_url" placeholder="https://…/bundle.json">
+          </div>
+
+          <div class="form-group">
+            <label for="time-range">Time Range</label>
+            <select id="time-range" name="time_range">
+              <option value="24h">Last 24 hours</option>
+              <option value="7d" selected>Last 7 days</option>
+              <option value="30d">Last 30 days</option>
+              <option value="all">All time (no filter)</option>
+              <option value="custom">Custom…</option>
+            </select>
+          </div>
+          <div class="form-group" id="custom-range-group" style="display:none; gap:1.5rem">
+            <div style="flex:1">
+              <label for="date-from">From</label>
+              <input type="date" id="date-from" name="date_from">
+            </div>
+            <div style="flex:1">
+              <label for="date-to">To</label>
+              <input type="date" id="date-to" name="date_to">
+            </div>
+          </div>
+
+          <div class="form-group" style="display:flex; gap:1.5rem;">
+            <div style="flex:1">
+              <label for="max-iter">Max Iterations</label>
+              <input type="number" id="max-iter" name="max_iterations" value="3" min="1" max="10">
+            </div>
+            <div style="flex:1">
+              <label for="threshold">Quality Threshold (1–10)</label>
+              <input type="number" id="threshold" name="quality_threshold" value="7" min="1" max="10">
+            </div>
+            <div style="flex:1">
+              <label for="hunt-refine-iters">Hunt Refinement Passes</label>
+              <input type="number" id="hunt-refine-iters" name="hunt_refinement_iters" value="2" min="0" max="5">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Upload Documents (PDF, Markdown, TXT)</label>
+            <div class="file-drop" id="file-drop" onclick="document.getElementById('file-input').click()">
+              <input type="file" id="file-input" multiple accept=".pdf,.md,.txt,text/plain,text/markdown,application/pdf">
+              <div>Drop files here or click to browse</div>
+              <div style="font-size:11px;margin-top:4px">PDF · Markdown · TXT — 8 KB limit per file extracted</div>
+            </div>
+            <div id="file-list"></div>
+          </div>
+
+          <div id="form-error" class="error-panel" style="display:none;margin-bottom:1rem"></div>
+
+          <button type="submit" class="btn btn-primary" id="submit-btn">
+            <span id="submit-spinner" class="spinner" style="display:none"></span>
+            Run Analysis
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- ── Feeds management view ──────────────────────────────────────── -->
+    <div id="view-feeds" class="view">
+      <div class="page-header">
+        <h1>Feed Management</h1>
+      </div>
+
+      <!-- RSS feeds table -->
+      <div class="card" style="max-width:860px">
+        <div class="feed-mgmt-header">
+          <div class="card-title" style="margin-bottom:0">RSS Feeds</div>
+          <button class="btn btn-ghost btn-sm" id="show-add-rss-btn">+ Add RSS Feed</button>
+        </div>
+
+        <!-- Inline add form -->
+        <div id="add-rss-form" class="feed-add-form" style="display:none">
+          <input type="text" id="new-rss-name" placeholder="Feed name" style="flex:1">
+          <input type="url"  id="new-rss-url"  placeholder="https://example.com/feed.xml" style="flex:2">
+          <button type="button" class="btn btn-primary btn-sm" id="save-rss-btn">Add</button>
+          <button type="button" class="btn btn-ghost btn-sm"   id="cancel-rss-btn">Cancel</button>
+        </div>
+
+        <div class="table-wrap">
+          <table id="rss-feeds-table">
+            <thead>
+              <tr><th>Name</th><th>URL</th><th>Type</th><th></th></tr>
+            </thead>
+            <tbody id="rss-feeds-tbody">
+              <tr><td colspan="4" class="empty">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- API feeds table -->
+      <div class="card" style="max-width:860px">
+        <div class="feed-mgmt-header">
+          <div class="card-title" style="margin-bottom:0">API / Threat Intel Feeds</div>
+          <button class="btn btn-ghost btn-sm" id="show-add-api-btn">+ Add API Feed</button>
+        </div>
+
+        <!-- Inline add form -->
+        <div id="add-api-form" class="feed-add-form" style="display:none">
+          <input type="text" id="new-api-name"   placeholder="Feed name" style="flex:1">
+          <input type="url"  id="new-api-url"    placeholder="https://api.example.com/v1/" style="flex:2">
+          <select id="new-api-method" class="feed-method-select">
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+          </select>
+          <button type="button" class="btn btn-primary btn-sm" id="save-api-btn">Add</button>
+          <button type="button" class="btn btn-ghost btn-sm"   id="cancel-api-btn">Cancel</button>
+        </div>
+
+        <div class="table-wrap">
+          <table id="api-feeds-table">
+            <thead>
+              <tr><th>Name</th><th>URL</th><th>Method</th><th>Type</th><th></th></tr>
+            </thead>
+            <tbody id="api-feeds-tbody">
+              <tr><td colspan="5" class="empty">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Report detail view ─────────────────────────────────────────── -->
+    <div id="view-report" class="view">
+      <div class="page-header">
+        <div>
+          <h1 id="report-name">Loading…</h1>
+          <div id="report-meta" style="color:var(--muted);font-size:12px"></div>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="back-btn">← Back</button>
+      </div>
+
+      <!-- Running state -->
+      <div id="running-panel" style="display:none">
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:1rem">
+            <span class="spinner"></span>
+            <span id="run-status-label">Running pipeline…</span>
+          </div>
+          <div class="log-panel" id="log-panel"></div>
+        </div>
+      </div>
+
+      <!-- Error state -->
+      <div id="error-panel" class="error-panel" style="display:none;margin-bottom:1.5rem"></div>
+
+      <!-- Report tabs -->
+      <div id="report-content" style="display:none">
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="summary">Intel Summary</button>
+          <button class="tab-btn" data-tab="hunt">Hunt Plan</button>
+          <button class="tab-btn" data-tab="review">Review</button>
+          <button class="tab-btn" data-tab="iocs">IOCs</button>
+        </div>
+
+        <!-- Intel Summary tab -->
+        <div id="tab-summary" class="tab-content active">
+          <div id="executive-summary" class="card section"></div>
+          <div class="section">
+            <div class="section-title">Primary Threats</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Threat Name</th><th>Type</th><th>Severity</th><th>MITRE ATT&CK</th><th>Target Sectors</th></tr>
+                </thead>
+                <tbody id="threats-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="section" id="campaigns-section">
+            <div class="section-title">Active Campaigns</div>
+            <div id="campaigns-list"></div>
+          </div>
+          <div class="section">
+            <div class="section-title">Exploited Vulnerabilities</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>CVE</th><th>Description</th><th>CVSS</th><th>Actively Exploited</th></tr>
+                </thead>
+                <tbody id="vulns-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="section" id="priorities-section">
+            <div class="section-title">Recommended Priorities</div>
+            <ul class="bullet-list" id="priorities-list"></ul>
+          </div>
+        </div>
+
+        <!-- Hunt Plan tab -->
+        <div id="tab-hunt" class="tab-content">
+          <div class="card section" id="hunt-meta"></div>
+          <div class="section">
+            <div class="section-title">Hypotheses</div>
+            <div id="hypotheses-list"></div>
+          </div>
+          <div class="section" id="ioc-hunt-section">
+            <div class="section-title">IOC Hunt List</div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Indicator</th><th>Type</th><th>Context</th></tr></thead>
+                <tbody id="ioc-hunt-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Review tab -->
+        <div id="tab-review" class="tab-content">
+          <div class="card section">
+            <div class="card-title">Overall Score</div>
+            <div class="score-wrap">
+              <div class="score-big" id="review-score">—</div>
+              <div style="flex:1">
+                <div class="score-bar-outer"><div class="score-bar-inner" id="review-bar"></div></div>
+                <div style="font-size:11px;color:var(--muted);margin-top:4px" id="review-status-text"></div>
+              </div>
+            </div>
+            <div class="sub-scores" id="sub-scores"></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem">
+            <div class="card">
+              <div class="card-title">Strengths</div>
+              <ul class="bullet-list" id="strengths-list"></ul>
+            </div>
+            <div class="card">
+              <div class="card-title">Critical Gaps</div>
+              <ul class="bullet-list" id="gaps-list"></ul>
+            </div>
+          </div>
+          <div class="card section">
+            <div class="card-title">Reviewer Notes</div>
+            <p id="reviewer-notes" style="color:var(--muted);line-height:1.7"></p>
+          </div>
+          <div class="section">
+            <div class="section-title">Iteration History</div>
+            <div class="table-wrap">
+              <table class="iter-table">
+                <thead><tr><th>Iteration</th><th>Score</th><th>Approved</th></tr></thead>
+                <tbody id="iter-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- IOCs tab -->
+        <div id="tab-iocs" class="tab-content">
+          <div class="ioc-grid" id="ioc-grid"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="/static/app.js?v=3"></script>
+</body>
+</html>
