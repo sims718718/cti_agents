@@ -1,3 +1,6 @@
+# The Why
+This project serves as a proof of concept of utlizing AI agents to perform CTI analysis and building threat hunts into a single pipline.
+
 # CTI Agents
 
 A multi-agent Cyber Threat Intelligence (CTI) pipeline powered by Claude. It aggregates OSINT from RSS feeds, abuse.ch APIs, CISA KEV, and STIX/TAXII sources, then routes the data through three specialized Claude agents in an iterative quality-controlled loop to produce structured threat summaries and detection-ready hunt plans.
