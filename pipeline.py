@@ -20,6 +20,7 @@ from agents.intel_collector import IntelCollectorAgent
 from agents.intel_summarizer import IntelSummarizerAgent
 from agents.threat_hunter import ThreatHunterAgent
 from agents.lead_analyst import LeadAnalystAgent
+from utils import events
 
 
 def run_pipeline(
@@ -29,7 +30,7 @@ def run_pipeline(
     stix_url: str | None = None,
     stix_file: str | None = None,
     document_uploads: list[dict] | None = None,
-    progress_callback: Callable[[str], None] | None = None,
+    progress_callback: Callable[[dict], None] | None = None,
     display=None,
     selected_rss_feeds: list[dict] | None = None,
     selected_api_feeds: list[dict] | None = None,
@@ -46,7 +47,8 @@ def run_pipeline(
         stix_url: Optional URL of a STIX 2.x JSON bundle.
         stix_file: Optional path to a local STIX 2.x JSON bundle file.
         document_uploads: List of dicts with keys: filename, content_type, bytes.
-        progress_callback: Called with string progress tokens as the pipeline runs.
+        progress_callback: Called with typed event dicts (see utils/events.py)
+            as the pipeline runs.
         display: Optional rich Display instance (CLI mode only).
 
     Returns:
@@ -63,9 +65,9 @@ def run_pipeline(
     if feed_types is None:
         feed_types = ["rss", "api"]
 
-    def _cb(token: str) -> None:
+    def _cb(event: dict) -> None:
         if progress_callback:
-            progress_callback(token)
+            progress_callback(event)
 
     # ── Build active feed config ───────────────────────────────────────────────
     active_feeds = dict(FEEDS)
@@ -95,7 +97,7 @@ def run_pipeline(
     lead       = LeadAnalystAgent(client, MODEL)
 
     # ── Phase 1: Collection ────────────────────────────────────────────────────
-    _cb("phase:collection")
+    _cb(events.phase_collection())
     if display:
         display.phase("PHASE 1: INTELLIGENCE COLLECTION", "IntelCollectorAgent")
     raw_intel = collector.run(
@@ -117,10 +119,10 @@ def run_pipeline(
         for k in ["news_articles", "ip_indicators", "iocs", "url_indicators",
                   "malware_samples", "vulnerabilities", "stix_objects", "document_intel"]
     )
-    _cb(f"collected:{total_items}")
+    _cb(events.collected(total_items))
 
     # ── Phase 2: Analysis loop ─────────────────────────────────────────────────
-    _cb("phase:analysis")
+    _cb(events.phase_analysis())
     if display:
         display.phase("PHASE 2: MULTI-AGENT ANALYSIS & REVIEW LOOP", "LeadAnalystAgent")
     final_report = lead.orchestrate(
@@ -134,5 +136,5 @@ def run_pipeline(
         hunt_refinement_iters=hunt_refinement_iters,
     )
 
-    _cb("phase:complete")
+    _cb(events.phase_complete())
     return final_report

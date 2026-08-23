@@ -220,8 +220,8 @@ def _run_pipeline_task(
     """Runs the synchronous pipeline in the background and persists results."""
     storage.update_run_status(run_id, "running")
 
-    def _cb(token: str) -> None:
-        storage.append_log(run_id, token)
+    def _cb(event: dict) -> None:
+        storage.append_log(run_id, event)
 
     try:
         report = run_pipeline(

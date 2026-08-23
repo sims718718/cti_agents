@@ -15,6 +15,13 @@ MITRE ATT&CK, endpoint and network detection engineering, and SIEM/EDR tooling.
 Given a threat intelligence summary, create a prioritized threat hunt plan.
 Focus on practical, executable hunts that a SOC team can run today.
 
+The intel summary includes, per primary threat, a Diamond Model of Intrusion
+Analysis (adversary/capability/infrastructure/victim) and a short narrative.
+Use the infrastructure and capability vertices to shape which IOCs and behaviors
+your hypotheses target, and use each threat's narrative to justify why a
+hypothesis is prioritized. Tag every hypothesis with the Diamond Model vertex(es)
+it primarily investigates via diamond_vertex_focus.
+
 Output ONLY valid JSON matching the schema below — no markdown fences, no commentary.
 Keep all fields concise. Limit arrays strictly:
 - hypotheses: exactly 3 (the highest-priority ones)
@@ -25,6 +32,8 @@ Keep all fields concise. Limit arrays strictly:
 - data_collection_requirements: max 4 items
 - success_criteria: max 3 items
 - escalation_thresholds: max 3 items
+- mitre_techniques per hypothesis: max 4 objects
+- diamond_vertex_focus per hypothesis: max 2 items, from adversary|capability|infrastructure|victim
 
 For Sigma rules, always include these fields: title, id (uuid4), status (experimental),
 description, references (empty list ok), author, date (today), logsource (category + product),
@@ -46,7 +55,15 @@ Schema:
       "id": "H-001",
       "title": "<hypothesis title>",
       "description": "<what adversary behavior are we looking for>",
-      "mitre_techniques": ["<TXXXX – Technique Name>"],
+      "diamond_vertex_focus": ["<adversary|capability|infrastructure|victim>"],
+      "mitre_techniques": [
+        {
+          "technique_id": "<TXXXX or TXXXX.XXX>",
+          "technique_name": "<Technique Name>",
+          "tactic": "<ATT&CK tactic name>",
+          "confidence": "<high|medium|low>"
+        }
+      ],
       "risk_level": "<critical|high|medium|low>",
       "data_sources": ["<Windows Event Logs|EDR telemetry|Firewall logs|DNS logs|etc.>"],
       "hunt_queries": [
@@ -124,23 +141,19 @@ class ThreatHunterAgent(BaseAgent):
             )
 
         messages = [{"role": "user", "content": user_content}]
-        raw_response = self._chat(SYSTEM_PROMPT, messages, max_tokens=16384)
 
-        try:
-            return self._parse_json(raw_response)
-        except ValueError as exc:
-            return {
-                "hunt_plan": {
-                    "title": f"[Parse error on iteration {iteration}]",
-                    "objective": str(exc),
-                    "priority": "unknown",
-                    "estimated_duration": "unknown",
-                    "analyst_skill_level": "unknown",
-                },
-                "hypotheses": [],
-                "ioc_hunt_list": {"ips_to_hunt": [], "urls_to_hunt": [], "hashes_to_hunt": [], "domains_to_hunt": []},
-                "data_collection_requirements": [],
-                "success_criteria": [],
-                "escalation_thresholds": [],
-                "raw_response": raw_response[:2000],
-            }
+        fallback = {
+            "hunt_plan": {
+                "title": f"[Parse error on iteration {iteration}]",
+                "objective": "Model response could not be parsed as JSON.",
+                "priority": "unknown",
+                "estimated_duration": "unknown",
+                "analyst_skill_level": "unknown",
+            },
+            "hypotheses": [],
+            "ioc_hunt_list": {"ips_to_hunt": [], "urls_to_hunt": [], "hashes_to_hunt": [], "domains_to_hunt": []},
+            "data_collection_requirements": [],
+            "success_criteria": [],
+            "escalation_thresholds": [],
+        }
+        return self._call_and_parse(SYSTEM_PROMPT, messages, fallback, max_tokens=16384)

@@ -1,6 +1,8 @@
 """Unit tests for BaseAgent helpers."""
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from agents.base_agent import BaseAgent
@@ -95,6 +97,38 @@ class TestParseJson:
         text = 'Result: ["item1", "item2"] complete.'
         result = agent._parse_json(text)
         assert result == ["item1", "item2"]
+
+
+# ── _call_and_parse ───────────────────────────────────────────────────────────
+
+class TestCallAndParse:
+    def test_success_sets_parse_error_false(self, agent, mock_anthropic_client):
+        mock_anthropic_client.messages.create.return_value.content = [
+            MagicMock(text='{"score": 8}')
+        ]
+        result = agent._call_and_parse("system", [{"role": "user", "content": "hi"}], fallback={"score": 0})
+        assert result == {"score": 8, "parse_error": False}
+
+    def test_unparseable_response_returns_fallback_with_parse_error_true(self, agent, mock_anthropic_client):
+        mock_anthropic_client.messages.create.return_value.content = [
+            MagicMock(text="not json at all")
+        ]
+        fallback = {"score": 0, "approved": False}
+        result = agent._call_and_parse("system", [{"role": "user", "content": "hi"}], fallback=fallback)
+        assert result["parse_error"] is True
+        assert result["score"] == 0
+        assert result["approved"] is False
+        assert "raw_response" in result
+        # Original fallback dict must not be mutated (each call gets its own copy)
+        assert "parse_error" not in fallback
+
+    def test_top_level_array_response_treated_as_parse_failure(self, agent, mock_anthropic_client):
+        mock_anthropic_client.messages.create.return_value.content = [
+            MagicMock(text="[1, 2, 3]")
+        ]
+        result = agent._call_and_parse("system", [{"role": "user", "content": "hi"}], fallback={"a": 1})
+        assert result["parse_error"] is True
+        assert result["a"] == 1
 
 
 # ── _truncate ──────────────────────────────────────────────────────────────────

@@ -313,41 +313,52 @@ function showError(msg) {
   el.style.display = 'block';
 }
 
-function renderLog(tokens) {
+// Every log entry served by the API is already normalized to
+// {event: "<name>", ...payload} — see utils/events.py. Runs older than that
+// module are converted on the server (web/storage.py::get_run), so this
+// never has to branch on shape itself.
+function renderLog(events) {
   const panel = document.getElementById('log-panel');
-  panel.innerHTML = tokens.map(t => {
+  panel.innerHTML = events.map(e => {
     let cls = '';
-    if (t.startsWith('phase:'))    cls = 'phase';
-    else if (t.startsWith('agent:')) cls = 'agent';
-    else if (t === 'approved')      cls = 'approved';
-    else if (t === 'max_iterations_reached') cls = 'failed';
-    return `<span class="log-line ${cls}">${fmtToken(t)}</span>`;
+    if (e.event.startsWith('phase_'))        cls = 'phase';
+    else if (e.event === 'agent_started')    cls = 'agent';
+    else if (e.event === 'approved')         cls = 'approved';
+    else if (e.event === 'max_iterations_reached') cls = 'failed';
+    return `<span class="log-line ${cls}">${fmtEvent(e)}</span>`;
   }).join('');
   panel.scrollTop = panel.scrollHeight;
 }
 
-function fmtToken(t) {
-  const map = {
-    'phase:collection': '● Phase 1: Intelligence Collection',
-    'phase:analysis':   '● Phase 2: Multi-Agent Analysis Loop',
-    'phase:complete':   '● Pipeline Complete',
-    'approved':         '✓ Analysis approved',
-    'iterating':        '↻ Quality threshold not met — iterating…',
-    'max_iterations_reached': '⚠ Max iterations reached',
-    'hunt_approved':          '✓ Hunt plan approved',
-    'hunt_iterating':         '↻ Hunt plan refining…',
-    'hunt_max_iterations_reached': '⚠ Hunt refinement max passes reached',
-  };
-  if (map[t]) return map[t];
-  if (t.startsWith('collected:'))         return `  Collected ${t.split(':')[1]} total items`;
-  if (t.startsWith('iteration:'))         return `  ── Iteration ${t.split(':')[1]}`;
-  if (t.startsWith('agent:'))             return `  ▸ Running ${t.split(':')[1]}…`;
-  if (t.startsWith('summarizer_done:'))   return `  ✓ Summarizer: ${t.split(':')[1].replace('_', ' ')}`;
-  if (t.startsWith('hunter_done:'))       return `  ✓ Hunter: ${t.split(':')[1].replace('_', ' ')}`;
-  if (t.startsWith('review_done:'))       return `  ✓ Review: ${t.split(':')[1]}`;
-  if (t.startsWith('hunt_refinement:'))   return `  ── Hunt Refinement Pass ${t.split(':')[1]}`;
-  if (t.startsWith('hunt_review_done:'))  return `  ✓ Hunt Review: ${t.split(':')[1]}`;
-  return '  ' + t;
+const _AGENT_LABELS = {
+  summarizer: 'IntelSummarizerAgent',
+  hunter: 'ThreatHunterAgent',
+  lead_analyst: 'LeadAnalystAgent',
+};
+
+function fmtEvent(e) {
+  const agentLabel = a => _AGENT_LABELS[a] || a;
+  switch (e.event) {
+    case 'phase_collection':            return '● Phase 1: Intelligence Collection';
+    case 'phase_analysis':              return '● Phase 2: Multi-Agent Analysis Loop';
+    case 'phase_complete':              return '● Pipeline Complete';
+    case 'approved':                    return '✓ Analysis approved';
+    case 'iterating':                   return '↻ Quality threshold not met — iterating…';
+    case 'max_iterations_reached':      return '⚠ Max iterations reached';
+    case 'hunt_approved':               return '✓ Hunt plan approved';
+    case 'hunt_iterating':              return '↻ Hunt plan refining…';
+    case 'hunt_max_iterations_reached': return '⚠ Hunt refinement max passes reached';
+    case 'collected':                   return `  Collected ${e.total_items} total items`;
+    case 'iteration':                   return `  ── Iteration ${e.n}`;
+    case 'agent_started':               return `  ▸ Running ${agentLabel(e.agent)}…`;
+    case 'parse_error':                 return `  ⚠ ${agentLabel(e.agent)}: response could not be parsed, used fallback`;
+    case 'summarizer_done':             return `  ✓ Summarizer: ${e.n_threats} threats`;
+    case 'hunter_done':                 return `  ✓ Hunter: ${e.n_hypotheses} hypotheses`;
+    case 'review_done':                 return `  ✓ Review: score=${e.score}`;
+    case 'hunt_refinement':             return `  ── Hunt Refinement Pass ${e.n}`;
+    case 'hunt_review_done':            return `  ✓ Hunt Review: score=${e.score}`;
+    default:                            return '  ' + (e.raw || e.event);
+  }
 }
 
 // ── Report rendering ──────────────────────────────────────────────────────────
@@ -389,10 +400,12 @@ function renderSummaryTab(s) {
       <td class="threat-name">${esc(t.name || t.threat_name || '')}</td>
       <td><span class="badge">${esc(t.type || t.threat_type || '')}</span></td>
       <td><span class="badge badge-${sev(t.severity)}">${esc(t.severity || '')}</span></td>
-      <td class="threat-mitre">${esc((t.mitre_techniques || t.mitre || []).join(', '))}</td>
+      <td class="threat-mitre">${esc((t.mitre_techniques || t.mitre || []).map(mitreLabel).join(', '))}</td>
       <td>${esc((t.target_sectors || t.sectors || []).join(', '))}</td>
     </tr>
   `).join('') : '<tr><td colspan="5" class="empty">No threat data.</td></tr>';
+
+  renderThreatDetails(threats);
 
   // Active campaigns
   const campaigns = landscape.active_campaigns || [];
@@ -426,6 +439,34 @@ function renderSummaryTab(s) {
   } else {
     document.getElementById('priorities-section').style.display = 'none';
   }
+}
+
+function renderThreatDetails(threats) {
+  const section = document.getElementById('threat-details-section');
+  const el = document.getElementById('threat-details-list');
+  const withDetail = threats.filter(t => t.diamond_model || t.narrative);
+  if (!withDetail.length) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+  el.innerHTML = withDetail.map(t => {
+    const dm = t.diamond_model || {};
+    return `
+      <div class="hyp-card">
+        <div class="hyp-header">
+          <div class="hyp-title">${esc(t.name || t.threat_name || '')}</div>
+        </div>
+        <div class="diamond-grid">
+          <div><span class="diamond-vertex-label">Adversary</span><br>${esc(dm.adversary || '—')}</div>
+          <div><span class="diamond-vertex-label">Capability</span><br>${esc(dm.capability || '—')}</div>
+          <div><span class="diamond-vertex-label">Infrastructure</span><br>${esc(dm.infrastructure || '—')}</div>
+          <div><span class="diamond-vertex-label">Victim</span><br>${esc(dm.victim || '—')}</div>
+        </div>
+        ${t.narrative ? `<p style="color:var(--muted);font-style:italic;margin-top:0.5rem;line-height:1.6">${esc(t.narrative)}</p>` : ''}
+      </div>
+    `;
+  }).join('');
 }
 
 // ── Hunt tab ──────────────────────────────────────────────────────────────────
@@ -463,7 +504,8 @@ function renderHuntTab(hp) {
         </div>
         <p style="color:var(--muted);margin-bottom:0.75rem;line-height:1.6">${esc(h.description || '')}</p>
         <div class="hyp-meta">
-          ${(h.mitre_techniques || h.mitre || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}
+          ${(h.mitre_techniques || h.mitre || []).map(t => `<span class="tag">${esc(mitreLabel(t))}</span>`).join('')}
+          ${(h.diamond_vertex_focus || []).map(v => `<span class="tag" style="color:var(--warning)">◆ ${esc(v)}</span>`).join('')}
           ${(h.data_sources || []).map(d => `<span class="tag" style="color:var(--info)">${esc(d)}</span>`).join('')}
         </div>
         ${queryBlocks}
@@ -494,12 +536,13 @@ function renderReviewTab(rev, history) {
   // Sub-scores
   const sub = rev.scores || {};
   const subLabels = {
-    intel_completeness:     'Intel Completeness',
-    intel_accuracy:         'Intel Accuracy',
-    intel_actionability:    'Intel Actionability',
-    hunt_hypothesis_quality:'Hypothesis Quality',
-    hunt_query_quality:     'Query Quality',
-    hunt_coverage:          'Hunt Coverage',
+    intel_completeness:              'Intel Completeness',
+    intel_accuracy:                  'Intel Accuracy',
+    intel_actionability:             'Intel Actionability',
+    intel_diamond_narrative_quality: 'Diamond Model & Narrative Quality',
+    hunt_hypothesis_quality:         'Hypothesis Quality',
+    hunt_query_quality:              'Query Quality',
+    hunt_coverage:                   'Hunt Coverage',
   };
   document.getElementById('sub-scores').innerHTML = Object.entries(subLabels).map(([k, label]) => {
     const v = sub[k];
@@ -559,6 +602,14 @@ async function apiFetch(url, opts = {}) {
     throw new Error(msg);
   }
   return res.json();
+}
+
+function mitreLabel(t) {
+  if (t === null || t === undefined) return '';
+  if (typeof t === 'string') return t;              // backward-compat: old runs stored flat strings
+  return t.technique_id
+    ? `${t.technique_id}${t.technique_name ? ' – ' + t.technique_name : ''}`
+    : (t.name || JSON.stringify(t));
 }
 
 function esc(s) {

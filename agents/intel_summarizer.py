@@ -22,6 +22,24 @@ Keep descriptions concise (1-2 sentences max per field). Limit arrays strictly:
 - key_iocs: max 5 per category
 - recommended_priorities: max 5 items
 - intelligence_gaps: max 3 items
+- mitre_techniques per threat: max 5 objects, most relevant first
+
+For each primary_threat's mitre_techniques, output structured objects (NOT strings):
+technique_id (e.g. "T1071" or "T1071.001"), technique_name, tactic (one of the 14
+MITRE ATT&CK Enterprise tactics, e.g. "Command and Control"), and confidence
+("high"|"medium"|"low" — your certainty in this mapping given the available evidence).
+
+For each primary_threat, also produce a Diamond Model of Intrusion Analysis
+(diamond_model) with exactly four vertices: adversary, capability, infrastructure,
+victim. Each is a short 1-2 sentence field. NEVER omit a vertex key — if intel is
+insufficient for a vertex, write "insufficient data" as its value rather than
+dropping the key.
+
+For each primary_threat, also produce a narrative: a single 2-4 sentence analytic
+story connecting adversary -> capability -> infrastructure -> victim -> observed
+MITRE techniques. Write it for a threat hunter deciding what to prioritize — it
+should justify why this threat matters and what to look for, not restate the
+description field.
 
 Schema:
 {
@@ -35,7 +53,21 @@ Schema:
         "description": "<1-2 sentence description>",
         "affected_sectors": ["<sector>"],
         "iocs": ["<sample IOC values if available>"],
-        "mitre_techniques": ["<TXXXX – Technique Name>"],
+        "mitre_techniques": [
+          {
+            "technique_id": "<TXXXX or TXXXX.XXX>",
+            "technique_name": "<Technique Name>",
+            "tactic": "<ATT&CK tactic name>",
+            "confidence": "<high|medium|low>"
+          }
+        ],
+        "diamond_model": {
+          "adversary": "<attributed actor/group, or 'insufficient data' — 1 sentence>",
+          "capability": "<malware/tools/techniques used — 1-2 sentences>",
+          "infrastructure": "<C2/hosting/delivery infrastructure — 1-2 sentences>",
+          "victim": "<targeted sectors/orgs/geographies — 1-2 sentences>"
+        },
+        "narrative": "<2-4 sentence story: adversary -> capability -> infrastructure -> victim -> techniques>",
         "sources": ["<source names>"]
       }
     ],
@@ -105,21 +137,16 @@ class IntelSummarizerAgent(BaseAgent):
             )
 
         messages = [{"role": "user", "content": user_content}]
-        raw_response = self._chat(SYSTEM_PROMPT, messages, max_tokens=8192)
 
-        try:
-            return self._parse_json(raw_response)
-        except ValueError as exc:
-            # Return a minimal structure so the pipeline can continue
-            return {
-                "executive_summary": f"[Parse error on iteration {iteration}] {exc}",
-                "raw_response": raw_response[:2000],
-                "threat_landscape": {
-                    "primary_threats": [],
-                    "active_campaigns": [],
-                    "exploited_vulnerabilities": [],
-                },
-                "key_iocs": {"ips": [], "urls": [], "hashes": [], "domains": []},
-                "recommended_priorities": [],
-                "intelligence_gaps": ["Response parse failure"],
-            }
+        fallback = {
+            "executive_summary": f"[Parse error on iteration {iteration}] Model response could not be parsed as JSON.",
+            "threat_landscape": {
+                "primary_threats": [],
+                "active_campaigns": [],
+                "exploited_vulnerabilities": [],
+            },
+            "key_iocs": {"ips": [], "urls": [], "hashes": [], "domains": []},
+            "recommended_priorities": [],
+            "intelligence_gaps": ["Response parse failure"],
+        }
+        return self._call_and_parse(SYSTEM_PROMPT, messages, fallback, max_tokens=8192)

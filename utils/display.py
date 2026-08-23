@@ -226,9 +226,37 @@ class Display:
                     threat.get("name", ""),
                     threat.get("type", ""),
                     sev_label,
-                    ", ".join(threat.get("mitre_techniques", [])[:2]),
+                    ", ".join(
+                        tt.get("technique_id", "") if isinstance(tt, dict) else str(tt)
+                        for tt in threat.get("mitre_techniques", [])[:3]
+                    ),
                 )
             self.console.print(t)
+
+        # Diamond Model & Narrative (one panel per threat that has one)
+        for threat in threats:
+            dm = threat.get("diamond_model") or {}
+            narrative = threat.get("narrative", "")
+            if not dm and not narrative:
+                continue
+            body = (
+                f"[bold]Adversary:[/bold] {dm.get('adversary', '—')}\n"
+                f"[bold]Capability:[/bold] {dm.get('capability', '—')}\n"
+                f"[bold]Infrastructure:[/bold] {dm.get('infrastructure', '—')}\n"
+                f"[bold]Victim:[/bold] {dm.get('victim', '—')}"
+            )
+            if narrative:
+                body += f"\n\n[italic]{narrative}[/italic]"
+            self.console.print(
+                Panel(
+                    body,
+                    title=f"[bold]Diamond Model — {threat.get('name', '')}[/bold]",
+                    border_style="red",
+                    padding=(0, 2),
+                )
+            )
+        if threats:
+            self.console.print()
 
         # Hunt Plan Overview
         self.console.print(
@@ -255,14 +283,23 @@ class Display:
             t.add_column("ID", style="bold")
             t.add_column("Title")
             t.add_column("Risk")
+            t.add_column("MITRE")
+            t.add_column("Focus")
             t.add_column("Queries")
             for hyp in hypotheses:
                 risk = hyp.get("risk_level", "").lower()
                 risk_label = _SEV_LABELS.get(risk, f"[white]{risk.upper()}[/white]")
+                mitre_ids = ", ".join(
+                    tt.get("technique_id", "") if isinstance(tt, dict) else str(tt)
+                    for tt in hyp.get("mitre_techniques", [])[:3]
+                )
+                focus = ", ".join(hyp.get("diamond_vertex_focus", []))
                 t.add_row(
                     hyp.get("id", ""),
                     hyp.get("title", ""),
                     risk_label,
+                    mitre_ids,
+                    focus,
                     str(len(hyp.get("hunt_queries", []))),
                 )
             self.console.print(t)

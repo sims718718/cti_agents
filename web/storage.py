@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from utils.events import normalize_log_entry
+
 REPORTS_DIR = Path(__file__).parent.parent / "reports"
 INDEX_FILE = REPORTS_DIR / "index.json"
 
@@ -113,12 +115,12 @@ def update_run_status(run_id: str, status: str) -> None:
         _write_index(index)
 
 
-def append_log(run_id: str, token: str) -> None:
+def append_log(run_id: str, event: dict) -> None:
     with _lock:
         record = _read_run(run_id)
         if record is None:
             return
-        record.setdefault("log", []).append(token)
+        record.setdefault("log", []).append(event)
         _write_run(record)
 
 
@@ -171,7 +173,21 @@ def fail_run(run_id: str, error: str) -> None:
 
 
 def get_run(run_id: str) -> dict | None:
-    return _read_run(run_id)
+    """Fetch a run record with its log normalized to the current event shape.
+
+    Runs persisted before the typed-event system have `log` entries stored
+    as plain strings on disk; those files are never rewritten. Normalizing
+    here (rather than in `_read_run`) keeps this the only path that converts
+    legacy entries, so callers that read-modify-write a record (e.g.
+    `append_log`, `update_run_status`) round-trip the file's original
+    content untouched.
+    """
+    record = _read_run(run_id)
+    if record is None:
+        return None
+    record = dict(record)
+    record["log"] = [normalize_log_entry(e) for e in record.get("log", [])]
+    return record
 
 
 def list_runs() -> list[dict]:

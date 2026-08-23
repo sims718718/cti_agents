@@ -375,6 +375,20 @@ pre.query {
 .hyp-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
 .hyp-title { font-weight: 700; font-size: 0.95rem; }
 .hyp-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 0.75rem; }
+.diamond-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem 1.5rem;
+  margin: 0.5rem 0;
+  font-size: 13px;
+}
+.diamond-vertex-label {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
 .tag {
   background: var(--surface);
   border: 1px solid var(--border);

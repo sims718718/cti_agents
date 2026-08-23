@@ -26,9 +26,20 @@ python main.py --max-iter 2 --threshold 8    # Tune QA loop
 python main.py --hunt-refine-iters 3         # Hunter-only refinement passes after main QA loop (default: 2)
 python main.py --stix-url https://...        # Custom STIX bundle URL
 python main.py --stix-file /path/to/bundle.json
+
+# Web UI (FastAPI, served at :8000; docker-compose maps it to :8001)
+pip install -r requirements-dev.txt   # adds pytest, pytest-mock, responses
+uvicorn web.app:app --reload
+docker compose up --build -d          # or via Docker
+
+# Tests
+pytest tests/ -v
+pytest tests/unit/test_base_agent.py -v      # single file
+pytest tests/unit/test_base_agent.py::test_name -v  # single test
+pytest tests/integration/ -v                 # integration only
 ```
 
-There is no test suite. There is no build step—this is a pure Python project.
+There is no build step—this is a pure Python project.
 
 ## Architecture
 
@@ -55,11 +66,20 @@ Rich terminal display + optional JSON file export.
 
 **`pipeline.py`** is the shared coordination layer called by both `main.py` (CLI) and any web backend. It instantiates agents, wires document uploads, and runs both phases.
 
+### Web UI (`web/app.py`, `web/storage.py`, `web/feed_store.py`)
+
+FastAPI wraps the same `pipeline.run_pipeline()` used by the CLI. `POST /api/runs` generates a `run_id`, then hands the pipeline call to a `ThreadPoolExecutor` (via `BackgroundTasks`) so the request returns immediately (202) while the run executes in the background; `GET /api/runs/{id}/status` polls `web/storage.py` for progress. `web/storage.py` persists one JSON file per run (list/get/append-log) under the run's directory. `web/feed_store.py` persists user-added RSS/API feeds (`/api/feeds/*`) separately from the built-in `config.py` feeds — built-ins can't be deleted through the API. Static frontend (`web/static/`) is vanilla HTML/CSS/JS, no build step.
+
+### Progress events (`utils/events.py`)
+
+`pipeline.py` and `agents/lead_analyst.py` report progress through `progress_callback: Callable[[dict], None]`, used only by the web backend (`web/app.py`) — the CLI passes a `Display` instance instead and never touches this callback. Every event is a plain dict `{"event": "<name>", ...payload}` built by one of `utils/events.py`'s builder functions (e.g. `events.summarizer_done(n_threats)`); never construct one by hand at the call site. `web/storage.py::append_log()` persists whatever it's given as-is. `web/storage.py::get_run()` runs each stored `log` entry through `events.normalize_log_entry()` before returning it, so runs recorded before this module existed (plain string tokens like `"summarizer_done:3_threats"`) render the same as new ones — the on-disk JSON files themselves are never rewritten. `web/static/app.js`'s `fmtEvent()` switches on `event["event"]`, no string parsing.
+
 ### Base Agent (`agents/base_agent.py`)
 
 All LLM agents inherit `BaseAgent`, which provides:
-- `_chat(messages)` — Claude API wrapper (uses model from `config.MODEL`)
-- `_parse_json(text)` — extracts JSON from responses; tries raw JSON, markdown fences, then outermost-brace regex; returns `{}` on failure so the pipeline never crashes
+- `_chat(system, messages, max_tokens)` — Claude API wrapper (uses model from `config.MODEL`)
+- `_parse_json(text)` — extracts JSON from responses; tries raw JSON, markdown fences, then a depth-balanced brace/bracket scan; raises `ValueError` if nothing parses
+- `_call_and_parse(system, messages, fallback, max_tokens)` — the shared call → parse → fallback pattern used by every LLM agent's `run()`/`review()`. On success returns the parsed dict with `parse_error: False` set; on a parse failure returns a copy of `fallback` augmented with `parse_error: True` and `raw_response` (first 2000 chars). Callers (e.g. `LeadAnalystAgent.orchestrate()`) should check the `parse_error` flag rather than sniffing content fields for a magic-string prefix.
 - `_truncate(data, max_chars)` — serializes to JSON and trims at `max_chars` to stay within context limits (60k for raw intel, 40k for combined review)
 
 ### Configuration (`config.py`)
@@ -85,8 +105,11 @@ Each agent consumes the previous agent's structured JSON output. The schemas are
 | Variable | Required | Description |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Yes | Claude API key |
+| `ANTHROPIC_MODEL` | No | Overrides `config.MODEL` (default `claude-sonnet-4-6`) |
 | `OTX_API_KEY` | No | AlienVault OTX (currently unused in feeds; reserved) |
+| `VIRUSTOTAL_API_KEY` | No | Reserved for future use |
+| `STIX_TIMEOUT` | No | STIX/TAXII request timeout in seconds (default 20) |
 
 ## Dependencies
 
-`anthropic`, `feedparser`, `requests`, `stix2`, `taxii2-client`, `python-dotenv`, `rich`, `typer`. Optional: `pypdf` for PDF document uploads. TAXII support is optional—missing `taxii2-client` is handled gracefully.
+`anthropic`, `feedparser`, `requests`, `stix2`, `taxii2-client`, `python-dotenv`, `rich`, `typer`, `fastapi`, `uvicorn`, `python-multipart`. Optional: `pypdf` for PDF document uploads. TAXII support is optional—missing `taxii2-client` is handled gracefully. Test-only (`requirements-dev.txt`): `pytest`, `pytest-mock`, `responses`.

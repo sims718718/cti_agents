@@ -82,6 +82,54 @@ class BaseAgent:
                     return text[start : i + 1]
         return None
 
+    def _call_and_parse(
+        self,
+        system: str,
+        messages: list[dict],
+        fallback: dict,
+        max_tokens: int = 4096,
+    ) -> dict:
+        """Call Claude, parse the JSON response, and fall back gracefully on failure.
+
+        This centralizes the call -> parse -> fallback pattern that was
+        previously duplicated (with a bespoke fallback dict each time) across
+        every LLM-powered agent's run()/review() method.
+
+        On success, returns the parsed dict with "parse_error": False set.
+        On failure to parse, returns a copy of `fallback` augmented with
+        "parse_error": True and "raw_response" (first 2000 chars of the
+        unparseable response). Callers should check the "parse_error" key
+        rather than inspecting content fields for a magic-string prefix.
+
+        Args:
+            system: System prompt for this call.
+            messages: Conversation messages.
+            fallback: Dict to return (augmented) if the response can't be parsed.
+                Should match the shape callers expect on success, so downstream
+                code can keep using .get() safely either way.
+            max_tokens: Max tokens for the response.
+        """
+        raw_response = self._chat(system, messages, max_tokens=max_tokens)
+        try:
+            parsed = self._parse_json(raw_response)
+        except ValueError:
+            result = dict(fallback)
+            result["parse_error"] = True
+            result["raw_response"] = raw_response[:2000]
+            return result
+
+        if isinstance(parsed, dict):
+            parsed.setdefault("parse_error", False)
+            return parsed
+
+        # Model returned a JSON array at the top level instead of an object —
+        # treat as a parse failure since every schema in this codebase expects
+        # a dict.
+        result = dict(fallback)
+        result["parse_error"] = True
+        result["raw_response"] = raw_response[:2000]
+        return result
+
     @staticmethod
     def _truncate(obj: Any, max_chars: int = 60_000) -> str:
         """Serialize obj to JSON, truncating if necessary."""
